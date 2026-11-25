@@ -1,6 +1,8 @@
 # One-time setup build: the normal firmware plus two buttons used once when moving off another
-# firmware, so that nothing of it is left on the chip. Flash this first, press both buttons
-# (standby slot first), then flash aircon.yaml. See README.md, "First install".
+# firmware, so that nothing of it is left on the chip. Flash this first; once it has run for a
+# minute, press Wipe Settings, enter Wi-Fi through the hotspot, then press Erase Standby Slot
+# (the old firmware stays as a fallback until this last step), then flash aircon.yaml.
+# See README.md, "First install".
 
 packages:
   base: !include aircon.yaml

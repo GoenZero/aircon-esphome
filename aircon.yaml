@@ -34,6 +34,15 @@ captive_portal:
 
 api:
   reboot_timeout: 0s
+  # Raise the log level from Home Assistant when CN105 frames are needed (e.g. the first time the
+  # unit cools or defrosts), then lower it again: esphome.aircon_log_debug / esphome.aircon_log_info
+  actions:
+    - action: log_debug
+      then:
+        - logger.set_level: DEBUG
+    - action: log_info
+      then:
+        - logger.set_level: INFO
 
 ota:
   - platform: esphome
@@ -102,15 +111,12 @@ climate:
     target_humidity_sensor:
       name: Target Humidity
 
+    # Stage, Sub Mode and Auto Sub Mode are published by the component only when the raw value
+    # changes, so a plain map is enough.
     stage_sensor:
       name: Stage
       entity_category: diagnostic
       filters:
-        - lambda: &dedup |-
-            static std::string last;
-            if (x == last) return {};
-            last = x;
-            return x;
         - map:
             - IDLE -> 空闲
             - LOW -> 低强度
@@ -122,7 +128,6 @@ climate:
     sub_mode_sensor:
       name: Sub Mode
       filters:
-        - lambda: *dedup
         - map:
             - NORMAL -> 正常
             - WARMUP -> 暖机
@@ -134,7 +139,6 @@ climate:
       name: Auto Sub Mode
       entity_category: diagnostic
       filters:
-        - lambda: *dedup
         - map:
             - AUTO_OFF -> 自动关闭
             - AUTO_COOL -> 自动制冷
@@ -146,6 +150,8 @@ climate:
     error_code_sensor:
       name: Error Code
       filters:
+        # The component compares the published (translated) state with the raw English value,
+        # so without this it would republish on every poll.
         - lambda: |-
             static std::string last;
             if (x == last) return {};
@@ -257,7 +263,7 @@ interval:
             want = true;
           } else if (state == esphome::DriverState::CONNECTING || state == esphome::DriverState::DISCONNECTED) {
             if (connecting_since == 0) connecting_since = millis();
-            want = millis() - connecting_since > 10000;
+            want = millis() - connecting_since >= 10000;
           }
           if (want != alarm) {
             alarm = want;
