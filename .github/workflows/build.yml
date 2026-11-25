@@ -36,7 +36,7 @@ jobs:
 
       - run: esphome compile ${{ matrix.config }}.yaml
 
-      - run: python tools/collect.py ${{ matrix.config }} dist
+      - run: python tools/collect.py ${{ matrix.config }} aircon dist
 
       - uses: actions/upload-artifact@v4
         with:

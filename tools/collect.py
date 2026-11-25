@@ -1,12 +1,16 @@
 """Collect the build output of one configuration and check it against the device.
 
-Usage: python tools/collect.py <config-name> <out-dir>
+Usage: python tools/collect.py <config-name> <device-name> <out-dir>
+
+<device-name> is `esphome: name:` (both configurations build the same device, so the
+build directory is named after the device, not the file).
 
 Checks:
 - the partition table matches the one already on the NanoC6 (written by the first
   factory flash and never changed by OTA): two 0x1C0000 app slots at 0x10000 / 0x1D0000;
 - the OTA image fits one app slot.
-Writes a short report to $GITHUB_STEP_SUMMARY when it is set.
+Writes a short report to $GITHUB_STEP_SUMMARY when it is set, and the key facts as
+workflow annotations (readable through the public check-runs API without signing in).
 """
 
 from __future__ import annotations
@@ -52,8 +56,8 @@ def sha256(path: Path) -> str:
 
 
 def main() -> int:
-    name, out = sys.argv[1], Path(sys.argv[2])
-    root = Path(".esphome") / "build" / name
+    name, device, out = sys.argv[1], sys.argv[2], Path(sys.argv[3])
+    root = Path(".esphome") / "build" / device
     ota = find(root, ["firmware.ota.bin"])
     factory = find(root, ["firmware.factory.bin"])
     parts = find(root, ["partitions.bin", "partition-table.bin"])
@@ -109,6 +113,13 @@ def main() -> int:
         if res.returncode == 0:
             report += ["", "<details><summary>esptool image-info</summary>", "", "```", res.stdout.strip(), "```", "</details>"]
             break
+
+    layout = ", ".join(f"{k}@0x{v[2]:x}/0x{v[3]:x}" for k, v in table.items())
+    level = "notice" if ok else "error"
+    print(f"::{level} title={name} image::{size} bytes, {used:.1f}% of slot, {SLOT_SIZE - size} free; "
+          f"app slots match device: {table.get('app0') == ON_DEVICE['app0'] and table.get('app1') == ON_DEVICE['app1']}")
+    print(f"::notice title={name} partitions::{layout}")
+    print(f"::notice title={name} sha256::ota {sha256(out / f'{name}.ota.bin')}")
 
     text = "\n".join(report) + "\n"
     print(text)
