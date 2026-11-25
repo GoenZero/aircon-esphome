@@ -100,8 +100,11 @@ inline void aircon_wipe_settings() {
   ESP_LOGW(TAG, "Erasing settings storage %s at 0x%06X (%u bytes), then restarting", nvs->label,
            (unsigned) nvs->address, (unsigned) nvs->size);
   nvs_flash_deinit();
-  const bool ok = erase_partition(nvs);
-  ESP_LOGW(TAG, ok ? "Done: settings storage erased, restarting" : "Erase incomplete, restarting; press again after boot");
+  if (erase_partition(nvs)) {
+    ESP_LOGW(TAG, "Done: settings storage erased, restarting");
+  } else {
+    ESP_LOGE(TAG, "Erase incomplete, restarting; press again after boot");
+  }
   esphome::delay(200);  // let the log line go out
   esp_restart();
 }

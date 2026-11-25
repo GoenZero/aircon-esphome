@@ -34,7 +34,14 @@ jobs:
             ~/.platformio
           key: toolchain-${{ runner.os }}-${{ hashFiles('requirements.txt') }}
 
-      - run: esphome compile ${{ matrix.config }}.yaml
+      - name: Compile
+        run: |
+          set -o pipefail
+          esphome compile ${{ matrix.config }}.yaml 2>&1 | tee build.log
+
+      # Compiler errors as annotations, readable without signing in.
+      - if: failure()
+        run: grep -E '(error|Error)' build.log | tail -n 20 | sed 's/::/ /g; s/^/::error::/' || true
 
       - run: python tools/collect.py ${{ matrix.config }} aircon dist
 
