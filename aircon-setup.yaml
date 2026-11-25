@@ -1,0 +1,27 @@
+# One-time setup build: the normal firmware plus two buttons used once when moving off another
+# firmware, so that nothing of it is left on the chip. Flash this first, press both buttons
+# (standby slot first), then flash aircon.yaml. See README.md, "First install".
+
+packages:
+  base: !include aircon.yaml
+
+esphome:
+  includes:
+    - setup/cleanup.h
+
+logger:
+  initial_level: DEBUG
+
+button:
+  - platform: template
+    name: Erase Standby Slot
+    entity_category: config
+    icon: mdi:eraser
+    on_press:
+      - lambda: 'aircon_erase_standby_slot();'
+  - platform: template
+    name: Wipe Settings
+    entity_category: config
+    icon: mdi:delete-forever
+    on_press:
+      - lambda: 'aircon_wipe_settings();'

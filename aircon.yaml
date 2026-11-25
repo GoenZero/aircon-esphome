@@ -1,0 +1,271 @@
+# Mitsubishi MSZ-GV2519-W on its CN105 port, through an M5Stack NanoC6 (ESP32-C6, 4 MB flash).
+# Only what this unit has: see README.md for the list and the reasons.
+# Wi-Fi credentials are not in this file: they are entered once through the fallback hotspot
+# and kept in the device's settings storage.
+
+esphome:
+  name: aircon
+  friendly_name: Air Conditioner
+  min_version: 2026.11.0
+  name_add_mac_suffix: false
+  project:
+    name: goenzero.aircon-esphome
+    version: "1.0.0"
+
+esp32:
+  board: esp32-c6-devkitm-1
+  variant: esp32c6
+  flash_size: 4MB
+  framework:
+    type: esp-idf
+
+external_components:
+  - source: github://echavet/MitsubishiCN105ESPHome@8665610d8133cc04c41ea4d59825e3e5a76a2814
+    components: [cn105]
+
+logger:
+  level: DEBUG
+  initial_level: INFO
+
+wifi:
+  ap: {}
+
+captive_portal:
+
+api:
+  reboot_timeout: 0s
+
+ota:
+  - platform: esphome
+  - platform: web_server
+
+web_server:
+  version: 3
+  local: false
+
+esp32_ble_tracker:
+
+bluetooth_proxy:
+  id: ble_proxy
+  active: true
+
+uart:
+  id: HP_UART
+  tx_pin: GPIO1
+  rx_pin: GPIO2
+  baud_rate: 2400
+  data_bits: 8
+  parity: EVEN
+  stop_bits: 1
+
+climate:
+  - platform: cn105
+    id: hp
+    name: None
+    uart_id: HP_UART
+    update_interval: 3500ms
+    debounce_delay: 100ms
+    visual:
+      min_temperature: 16
+      max_temperature: 31
+      temperature_step:
+        target_temperature: 1
+        current_temperature: 0.5
+    supports:
+      mode: [HEAT, COOL, DRY]
+      fan_mode: [AUTO, QUIET, LOW, MEDIUM, MIDDLE, HIGH]
+      swing_mode: ["OFF", VERTICAL]
+
+    # The component's own vane select has fixed English options; it stays internal and the
+    # template select "Vertical Vane" below shows the same positions with Chinese labels.
+    vertical_vane_select:
+      id: vertical_vane_raw
+      name: Vertical Vane Raw
+      internal: true
+      on_value:
+        then:
+          - lambda: 'id(vertical_vane).publish_state(i);'
+
+    compressor_frequency_sensor:
+      name: Compressor Frequency
+      report_when_idle: false
+    outside_air_temperature_sensor:
+      name: Outdoor Temperature
+    input_power_sensor:
+      name: Input Power
+    kwh_sensor:
+      name: Energy
+    runtime_hours_sensor:
+      name: Runtime
+    hp_uptime_connection_sensor:
+      name: Connection Uptime
+    target_humidity_sensor:
+      name: Target Humidity
+
+    stage_sensor:
+      name: Stage
+      entity_category: diagnostic
+      filters:
+        - lambda: &dedup |-
+            static std::string last;
+            if (x == last) return {};
+            last = x;
+            return x;
+        - map:
+            - IDLE -> 空闲
+            - LOW -> 低强度
+            - GENTLE -> 轻柔
+            - MEDIUM -> 中等
+            - MODERATE -> 中偏强
+            - HIGH -> 高强度
+            - DIFFUSE -> 扩散
+    sub_mode_sensor:
+      name: Sub Mode
+      filters:
+        - lambda: *dedup
+        - map:
+            - NORMAL -> 正常
+            - WARMUP -> 暖机
+            - DEFROST -> 除霜
+            - PREHEAT -> 预热
+            - STANDBY -> 待机
+            - OFF -> 已关机
+    auto_sub_mode_sensor:
+      name: Auto Sub Mode
+      entity_category: diagnostic
+      filters:
+        - lambda: *dedup
+        - map:
+            - AUTO_OFF -> 自动关闭
+            - AUTO_COOL -> 自动制冷
+            - AUTO_HEAT -> 自动制热
+            - AUTO_LEADER -> 自动子状态 0x03
+            - AUTO_INACTIVE -> 未选自动模式
+            - AUTO_IDLE -> 自动待机
+            - AUTO_ACTIVE -> 自动模式已启动过压缩机
+    error_code_sensor:
+      name: Error Code
+      filters:
+        - lambda: |-
+            static std::string last;
+            if (x == last) return {};
+            last = x;
+            if (x == "No Error") return std::string("无故障");
+            unsigned int code = 0, sub = 0;
+            if (sscanf(x.c_str(), "Error 0x%x sub 0x%x", &code, &sub) == 2) {
+              char buf[48];
+              snprintf(buf, sizeof(buf), "故障码 0x%02X，子码 0x%02X", code, sub);
+              return std::string(buf);
+            }
+            return x;
+    functions_sensor:
+      name: Functions
+      entity_category: diagnostic
+      filters:
+        - map:
+            - "Operation pending, please wait. -> 正在读取，请稍候"
+    functions_get_button:
+      name: Read Functions
+
+select:
+  - platform: template
+    id: vertical_vane
+    name: Vertical Vane
+    icon: mdi:swap-vertical
+    # Same order as the component: AUTO, ↑↑, ↑, —, ↓, ↓↓, SWING
+    options:
+      - "自动"
+      - "1（最上）"
+      - "2"
+      - "3"
+      - "4"
+      - "5（最下）"
+      - "摆动"
+    lambda: 'return {};'
+    update_interval: never
+    set_action:
+      - lambda: |-
+          auto index = id(vertical_vane).index_of(x.c_str(), x.size());
+          if (index.has_value()) {
+            auto call = id(vertical_vane_raw).make_call();
+            call.set_index(*index);
+            call.perform();
+          }
+
+binary_sensor:
+  - platform: template
+    name: Operating
+    device_class: running
+    entity_category: diagnostic
+    lambda: 'return id(hp).is_operating();'
+
+sensor:
+  - platform: wifi_signal
+    name: WiFi Signal
+    update_interval: 60s
+    entity_category: diagnostic
+  - platform: uptime
+    name: Uptime
+    update_interval: 60s
+    entity_category: diagnostic
+
+text_sensor:
+  - platform: wifi_info
+    ip_address:
+      name: IP Address
+    ssid:
+      name: SSID
+  - platform: version
+    name: ESPHome Version
+    hide_timestamp: true
+
+# Status LED: off normally, red while the CN105 link is down.
+power_supply:
+  - id: rgb_power
+    pin: GPIO19
+    enable_time: 5ms
+    keep_on_time: 10ms
+
+light:
+  - platform: esp32_rmt_led_strip
+    id: status_led
+    name: Status LED
+    internal: true
+    pin: GPIO20
+    num_leds: 1
+    chipset: ws2812
+    rgb_order: GRB
+    power_supply: rgb_power
+    restore_mode: ALWAYS_OFF
+    default_transition_length: 0s
+
+interval:
+  - interval: 1s
+    then:
+      - lambda: |-
+          // Give the first handshake about 10 s from the moment the driver starts CONNECTING
+          // (it first waits for Wi-Fi). After one success, any loss of the link turns the LED red.
+          static uint32_t connecting_since = 0;
+          static bool ever_connected = false;
+          static bool alarm = false;
+          const auto state = id(hp).driver_state();
+          const bool linked = id(hp).isHeatpumpConnected() && id(hp).isHeatpumpConnectionActive();
+          bool want = false;
+          if (linked) {
+            ever_connected = true;
+          } else if (ever_connected) {
+            want = true;
+          } else if (state == esphome::DriverState::CONNECTING || state == esphome::DriverState::DISCONNECTED) {
+            if (connecting_since == 0) connecting_since = millis();
+            want = millis() - connecting_since > 10000;
+          }
+          if (want != alarm) {
+            alarm = want;
+            auto call = alarm ? id(status_led).turn_on() : id(status_led).turn_off();
+            if (alarm) {
+              call.set_rgb(1.0, 0.0, 0.0);
+              call.set_brightness(0.4);
+            }
+            call.set_transition_length(0);
+            call.perform();
+          }
